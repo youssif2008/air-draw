@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neon Air Draw</title>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+    <style>
+        body { margin: 0; background: #0a0a0a; color: white; font-family: 'Segoe UI', sans-serif; overflow: hidden; }
+        #controls { position: absolute; top: 20px; left: 20px; z-index: 10; background: rgba(0,0,0,0.7); padding: 15px; border-radius: 12px; border: 1px solid #444; }
+        canvas { position: absolute; top: 0; left: 0; }
+        #webcam { transform: scaleX(-1); width: 240px; height: 180px; border-radius: 8px; border: 2px solid #333; margin-bottom: 10px; }
+        .control-group { margin-bottom: 10px; display: flex; align-items: center; gap: 10px; }
+        #status { font-weight: bold; text-transform: uppercase; letter-spacing: 1px; color: #00ffcc; }
+        label { font-size: 0.8rem; opacity: 0.8; }
+        input[type="color"] { border: none; background: none; width: 40px; height: 40px; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+<div id="controls">
+    <video id="webcam" autoplay playsinline></video>
+    <div class="control-group">
+        <span id="status">Initializing...</span>
+    </div>
+    <div class="control-group">
+        <label>Color</label>
+        <input type="color" id="colorPicker" value="#00f3ff">
+    </div>
+    <div class="control-group">
+        <label>Size</label>
+        <input type="range" id="sizeSlider" min="2" max="20" value="5">
+    </div>
+    <div style="font-size: 0.7rem; opacity: 0.6;">
+        👆 Index: Draw | ✋ Palm: Clear | ✊ Fist: Pause
+    </div>
+</div>
+
+<canvas id="drawCanvas"></canvas>
+
+<script>
+    const video = document.getElementById('webcam');
+    const canvas = document.getElementById('drawCanvas');
+    const ctx = canvas.getContext('2d');
+    const statusText = document.getElementById('status');
+    const colorPicker = document.getElementById('colorPicker');
+    const sizeSlider = document.getElementById('sizeSlider');
+
+    let lastX = 0, lastY = 0;
+    let isDrawing = false;
+
+    // Resize canvas
+    function resize() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    function onResults(results) {
+        ctx.save();
+        
+        if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+            const landmarks = results.multiHandLandmarks[0];
+            
+            // Get key points
+            const indexTip = landmarks[8];
+            const indexPip = landmarks[6];
+            const middleTip = landmarks[12];
+            const ringTip = landmarks[16];
+            const pinkyTip = landmarks[20];
+            const wrist = landmarks[0];
+
+            // Map coordinates (mirrored)
+            const x = (1 - indexTip.x) * canvas.width;
+            const y = indexTip.y * canvas.height;
+
+            // Gesture Logic
+            const isIndexExtended = indexTip.y < indexPip.y;
+            const isPalmOpen = (middleTip.y < wrist.y - 0.2) && (pinkyTip.y < wrist.y - 0.2);
+            const isFist = (indexTip.y > landmarks[5].y) && (middleTip.y > landmarks[9].y);
+
+            if (isPalmOpen && !isFist) {
+                statusText.innerText = "Clearing...";
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                isDrawing = false;
+            } else if (isFist) {
+                statusText.innerText = "Paused";
+                isDrawing = false;
+            } else if (isIndexExtended) {
+                statusText.innerText = "Drawing";
+                if (isDrawing) {
+                    draw(lastX, lastY, x, y);
+                }
+                lastX = x;
+                lastY = y;
+                isDrawing = true;
+            } else {
+                statusText.innerText = "Waiting...";
+                isDrawing = false;
+            }
+        }
+        ctx.restore();
+    }
+
+    function draw(x1, y1, x2, y2) {
+        const color = colorPicker.value;
+        const size = sizeSlider.value;
+
+        // Neon Glow Effect
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = color;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = size;
+
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.stroke();
+
+        // Extra brightness layer
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+        ctx.lineWidth = size / 2;
+        ctx.stroke();
+    }
+
+    const hands = new Hands({
+        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+    });
+
+    hands.setOptions({
+        maxNumHands: 1,
+        modelComplexity: 1,
+        minDetectionConfidence: 0.7,
+        minTrackingConfidence: 0.7
+    });
+
+    hands.onResults(onResults);
+
+    const camera = new Camera(video, {
+        onFrame: async () => {
+            await hands.send({image: video});
+        },
+        width: 640,
+        height: 480
+    });
+    camera.start();
+</script>
+
+</body>
+</html>
